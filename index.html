@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Youtube Downloader</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+        input, select, button { width: 100%; padding: 8px; margin: 8px 0; font-size: 1rem; }
+        button { cursor: pointer; }
+        #preview {margin: 20px 0; text-align: center;}
+        iframe {width: 100%; height: 315px; border: none;}
+    </style>
+</head>
+<body>
+    <h1>YouTube Downloader</h1>
+    <label for="urlInput">URL de YouTube:</label>
+    <input type="text" id="urlInput" placeholder="https://www.youtube.com/watch?v=...">
+    <button id="fetchFormats">Obtener resoluciones</button>
+
+    <div id="preview"></div>
+
+    <label for="formatSelect">Selecciona resolución/formato:</label>
+    <select id="formatSelect" disabled>
+        <option value="">-- primero obtén resoluciones --</option>
+    </select>
+
+    <button id="downloadBtn" disabled>Descargar</button>
+    <script>
+        const urlInput = document.getElementById('urlInput');
+        const fetchBtn = document.getElementById('fetchFormats');
+        const formatSelect = document.getElementById('formatSelect');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const previewDiv = document.getElementById('preview');
+
+        fetchBtn.addEventListener('click', async () => {
+        const url = urlInput.value.trim();
+        if (!url) return alert('Por favor ingresa una URL.');
+
+        const videoIdMatch = url.match(/[?&]v=([^&]+)/)
+        const videoId = videoIdMatch ? videoIdMatch[1] : null;
+        previewDiv.innerHTML = '';
+        if (videoId) {
+            const iframe = document.createElement('iframe');
+            iframe.src = `https://www.youtube.com/embed/${videoId}`;
+            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypter-media; gyroscope; picture-in-picture';
+            iframe.allowFullscreen = true;
+            previewDiv.appendChild(iframe)
+        }
+
+        // Obtener formatos disponibles
+        const res = await fetch('/formats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        if (data.error) return alert(data.error);
+
+        // Llenar el select
+        formatSelect.innerHTML = '';
+        data.formats.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.format_id;
+            
+            // Crear texto descriptivo evitando valores null
+            const resolution = f.resolution || 'Desconocida';
+            const ext = f.ext || 'mp4';
+            const vcodec = f.vcodec === 'none' ? 'sin video' : (f.vcodec || 'video');
+            const acodec = f.acodec === 'none' ? 'sin audio' : (f.acodec || 'audio');
+            
+            opt.textContent = `${resolution} (${ext}, ${vcodec}/${acodec})`;
+            formatSelect.appendChild(opt);
+        });
+        formatSelect.disabled = false;
+        downloadBtn.disabled = false;
+        });
+
+        downloadBtn.addEventListener('click', async () => {
+        const url = urlInput.value.trim();
+        const format_id = formatSelect.value;
+        if (!url || !format_id) return alert('URL o formato no seleccionado.');
+
+        // Solicitud de descarga
+        const res = await fetch('/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, format_id })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            return alert(err.error || 'Error en la descarga');
+        }
+
+        // Recibir blob y disparar descarga
+        const blob = await res.blob();
+        const disposition = res.headers.get('Content-Disposition');
+        let filename = 'video.mp4';
+        if (disposition && disposition.includes('filename=')) {
+            filename = disposition.split('filename=')[1].replace(/"/g, '');
+        }
+        const urlBlob = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = urlBlob;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(urlBlob);
+        });
+    </script>
+</body>
+</html>
